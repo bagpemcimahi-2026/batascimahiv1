@@ -135,6 +135,67 @@
     ::-webkit-scrollbar { width: 5px; }
     ::-webkit-scrollbar-track { background: #0f1923; }
     ::-webkit-scrollbar-thumb { background: #243347; border-radius: 3px; }
+
+    /* KOORDINAT PICKER */
+    .btn-pick {
+      display: flex; align-items: center; gap: 8px;
+      width: 100%; padding: 8px 12px;
+      background: #0f1923; border: 1px solid #243347;
+      color: #9ab8d4; border-radius: 6px; font-size: 12px;
+      cursor: pointer; transition: all .2s; margin-top: 2px;
+    }
+    .btn-pick:hover { border-color: #1c7ed6; color: #d0e6f7; }
+    .btn-pick.active {
+      background: #1c3a5e; border-color: #1c7ed6;
+      color: #74b4e8; font-weight: 600;
+    }
+    .btn-pick .dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: #4a7fa8; flex-shrink: 0; transition: background .2s;
+    }
+    .btn-pick.active .dot { background: #74b4e8; animation: blink 1s infinite; }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.3} }
+
+    .map-crosshair { cursor: crosshair !important; }
+
+    /* Box koordinat di info panel */
+    .coord-box {
+      background: #0f1923; border: 1px solid #1c7ed6;
+      border-radius: 6px; padding: 10px 12px; margin-bottom: 10px;
+    }
+    .coord-box .coord-label {
+      font-size: 10px; font-weight: 600; letter-spacing: .6px;
+      text-transform: uppercase; color: #4a7fa8; margin-bottom: 6px;
+    }
+    .coord-box .coord-value {
+      font-size: 13px; font-weight: 700; color: #74b4e8;
+      font-family: 'Courier New', monospace; word-break: break-all;
+      margin-bottom: 8px;
+    }
+    .btn-copy {
+      display: flex; align-items: center; gap: 6px;
+      padding: 5px 10px; background: #1c3a5e;
+      border: 1px solid #2a5480; color: #74b4e8;
+      border-radius: 5px; font-size: 11px; cursor: pointer;
+      transition: all .15s; width: 100%; justify-content: center;
+    }
+    .btn-copy:hover { background: #1c7ed6; color: #fff; border-color: #1c7ed6; }
+    .btn-copy.copied { background: #1a6b3a; border-color: #2ea055; color: #6ee29a; }
+
+    /* Label koordinat di peta */
+    .coord-map-label {
+      background: #0f1923;
+      border: 2px solid #1c7ed6;
+      border-radius: 6px;
+      padding: 5px 10px;
+      font-size: 12px;
+      font-weight: 700;
+      color: #74b4e8;
+      font-family: 'Courier New', monospace;
+      white-space: nowrap;
+      box-shadow: 0 2px 10px rgba(0,0,0,.6);
+      pointer-events: none;
+    }
   </style>
 </head>
 <body>
@@ -201,6 +262,15 @@
         <div class="stat-box"><div class="num" id="stat-penataan">16</div><div class="lbl">Zona Penataan</div></div>
         <div class="stat-box"><div class="num" id="stat-penduduk">—</div><div class="lbl">Total Penduduk</div></div>
       </div>
+    </div>
+
+    <!-- KOORDINAT PICKER -->
+    <div class="sidebar-section">
+      <h2>Ambil Koordinat</h2>
+      <button class="btn-pick" id="btn-pick" onclick="togglePicker()">
+        <div class="dot"></div>
+        <span id="btn-pick-label">Aktifkan Mode Klik</span>
+      </button>
     </div>
 
     <!-- INFO PANEL -->
@@ -446,6 +516,110 @@ legend.onAdd = function() {
   return div;
 };
 legend.addTo(map);
+
+// ── KOORDINAT PICKER ──────────────────────────────────────────────
+let pickerActive = false;
+let coordMarker = null;
+let coordLabel = null;
+
+function togglePicker() {
+  pickerActive = !pickerActive;
+  const btn = document.getElementById('btn-pick');
+  const lbl = document.getElementById('btn-pick-label');
+  const mapEl = document.getElementById('map');
+
+  if (pickerActive) {
+    btn.classList.add('active');
+    lbl.textContent = 'Mode Aktif — Klik Peta';
+    mapEl.classList.add('map-crosshair');
+  } else {
+    btn.classList.remove('active');
+    lbl.textContent = 'Aktifkan Mode Klik';
+    mapEl.classList.remove('map-crosshair');
+    clearCoordMarker();
+  }
+}
+
+function clearCoordMarker() {
+  if (coordMarker) { map.removeLayer(coordMarker); coordMarker = null; }
+  if (coordLabel)  { map.removeLayer(coordLabel);  coordLabel  = null; }
+}
+
+map.on('click', function(e) {
+  if (!pickerActive) return;
+
+  const lat = e.latlng.lat.toFixed(6);
+  const lng = e.latlng.lng.toFixed(6);
+  const coordStr = `${lat}, ${lng}`;
+
+  // Hapus marker sebelumnya
+  clearCoordMarker();
+
+  // Marker titik di peta
+  coordMarker = L.circleMarker(e.latlng, {
+    radius: 7,
+    fillColor: '#1c7ed6',
+    fillOpacity: 1,
+    color: '#ffffff',
+    weight: 2
+  }).addTo(map);
+
+  // Label koordinat di peta (tooltip permanen)
+  coordLabel = L.marker(e.latlng, {
+    icon: L.divIcon({
+      className: '',
+      html: `<div class="coord-map-label">📍 ${coordStr}</div>`,
+      iconAnchor: [-12, 10]
+    }),
+    interactive: false
+  }).addTo(map);
+
+  // Tampilkan di info panel
+  const infoEl = document.getElementById('info-content');
+  infoEl.innerHTML = `
+    <div class="coord-box">
+      <div class="coord-label">📍 Koordinat Titik</div>
+      <div class="coord-value">${coordStr}</div>
+      <button class="btn-copy" id="btn-copy" onclick="copyCoord('${coordStr}')">
+        <span>📋</span> <span id="copy-text">Salin Koordinat</span>
+      </button>
+    </div>
+    <div class="info-row">
+      <span class="info-key">Latitude</span>
+      <span class="info-val">${lat}</span>
+    </div>
+    <div class="info-row">
+      <span class="info-key">Longitude</span>
+      <span class="info-val">${lng}</span>
+    </div>
+    <div style="font-size:11px;color:#3d5a74;margin-top:10px;line-height:1.6;">
+      Klik titik lain di peta untuk memperbarui koordinat.
+    </div>
+  `;
+});
+
+function copyCoord(str) {
+  navigator.clipboard.writeText(str).then(() => {
+    const btn = document.getElementById('btn-copy');
+    const txt = document.getElementById('copy-text');
+    if (!btn) return;
+    btn.classList.add('copied');
+    txt.textContent = 'Tersalin!';
+    setTimeout(() => {
+      btn.classList.remove('copied');
+      txt.textContent = 'Salin Koordinat';
+    }, 2000);
+  }).catch(() => {
+    // Fallback untuk browser lama
+    const ta = document.createElement('textarea');
+    ta.value = str; document.body.appendChild(ta);
+    ta.select(); document.execCommand('copy');
+    document.body.removeChild(ta);
+    const txt = document.getElementById('copy-text');
+    if (txt) txt.textContent = 'Tersalin!';
+    setTimeout(() => { if (txt) txt.textContent = 'Salin Koordinat'; }, 2000);
+  });
+}
 
 // ── INIT ──────────────────────────────────────────────────────────
 (function init() {
