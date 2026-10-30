@@ -9,6 +9,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
   <script src="administrasi_cimahi_data.js"></script>
   <script src="penataan_cimahi_data.js"></script>
+  <script src="batas_desa_data.js"></script>
 
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -237,6 +238,11 @@
         <div class="layer-swatch" style="background:#f59f00;border:2px solid #000;"></div>
         <span class="layer-label">Penataan Wilayah</span>
       </div>
+      <div class="layer-item" onclick="toggleLayer('desa')">
+        <div class="toggle" id="toggle-desa"></div>
+        <div class="layer-swatch" style="background:#adb5bd;border:2px solid #343a40;"></div>
+        <span class="layer-label">Batas Desa/Kel (Bandung &amp; KBB)</span>
+      </div>
     </div>
 
     <!-- FILTER -->
@@ -323,7 +329,8 @@ function getPenataanColor(ket) {
 }
 
 // ── LAYER STATE ────────────────────────────────────────────────────
-const layerState = { osm: true, esri: false, admin: true, penataan: true };
+const layerState = { osm: true, esri: false, admin: true, penataan: true, desa: false };
+let desaLayer = null;
 let adminLayer = null;
 let penataanLayer = null;
 let highlighted = null;
@@ -338,6 +345,7 @@ function toggleLayer(name) {
   if (name === 'osm')      { layerState.osm      ? map.addLayer(osmLayer)      : map.removeLayer(osmLayer); }
   if (name === 'esri')     { layerState.esri     ? map.addLayer(esriLayer)     : map.removeLayer(esriLayer); }
   if (name === 'admin' && adminLayer)      { layerState.admin      ? map.addLayer(adminLayer)      : map.removeLayer(adminLayer); }
+  if (name === 'desa' && desaLayer)         { layerState.desa     ? map.addLayer(desaLayer)     : map.removeLayer(desaLayer); }
   if (name === 'penataan' && penataanLayer) { layerState.penataan ? map.addLayer(penataanLayer) : map.removeLayer(penataanLayer); }
 }
 
@@ -400,6 +408,48 @@ function onEachPenataan(feature, layer) {
       map.fitBounds(e.target.getBounds(), { padding: [40, 40] });
     }
   });
+}
+
+const desaKabColors = {
+  'bandung barat': '#adb5bd',
+  'kota bandung':  '#66d9e8',
+  'bandung':       '#c0eb75',
+};
+
+function styleDesa(f) {
+  return {
+    fillColor: desaKabColors[normStr(f.properties.KABUPATEN)] || '#adb5bd',
+    fillOpacity: 0.35,
+    color: '#343a40',
+    weight: 1.5,
+    opacity: 1
+  };
+}
+
+function onEachDesa(feature, layer) {
+  const p = feature.properties;
+  layer.on({
+    mouseover(e) { e.target.setStyle({ fillOpacity: 0.6, weight: 2.5 }); },
+    mouseout(e)  { desaLayer.resetStyle(e.target); },
+    click(e) {
+      if (pickerActive) return;
+      showInfoDesa(p);
+    }
+  });
+}
+
+function showInfoDesa(p) {
+  const luasHa = p.Shape_Area ? (p.Shape_Area / 10000) : null;
+  document.getElementById('info-content').innerHTML = `
+    <div class="info-title">🏘️ ${p.DESA||'—'}</div>
+    <div class="info-row"><span class="info-key">Kecamatan</span><span class="info-val">${p.KECAMATAN||'—'}</span></div>
+    <div class="info-row"><span class="info-key">Kabupaten/Kota</span><span class="info-val">${p.KABUPATEN||'—'}</span></div>
+    <div class="info-row"><span class="info-key">Provinsi</span><span class="info-val">${p.PROVINSI||'—'}</span></div>
+    <div class="info-row"><span class="info-key">Kode PUM</span><span class="info-val">${p.KODE_PUM||'—'}</span></div>
+    <div class="info-row"><span class="info-key">Luas (HA)</span><span class="info-val">${luasHa ? luasHa.toLocaleString('id-ID',{maximumFractionDigits:2}) : '—'}</span></div>
+    <div class="info-row"><span class="info-key">Sumber</span><span class="info-val">${p.SUMBER||'—'}</span></div>
+    <div class="info-row"><span class="info-key">Status Batas</span><span class="info-val">${p.REMARK_1||'—'}</span></div>
+  `;
 }
 
 function fmtNum(n) {
@@ -507,11 +557,20 @@ legend.onAdd = function() {
     </div>`
   ).join('');
 
+  const desaRows = Object.entries(desaKabColors).map(([k,c]) =>
+    `<div style="display:flex;align-items:center;gap:8px;padding:2px 0;">
+      <div style="width:14px;height:14px;background:${c};border:2px solid #343a40;border-radius:2px;flex-shrink:0;"></div>
+      <span style="text-transform:capitalize">${k}</span>
+    </div>`
+  ).join('');
+
   div.innerHTML = `
     <div style="font-size:10px;font-weight:600;letter-spacing:.8px;text-transform:uppercase;color:#4a7fa8;margin-bottom:6px;">Kecamatan</div>
     ${adminRows}
     <div style="font-size:10px;font-weight:600;letter-spacing:.8px;text-transform:uppercase;color:#4a7fa8;margin:10px 0 6px;">Penataan</div>
     ${pekRows}
+    <div style="font-size:10px;font-weight:600;letter-spacing:.8px;text-transform:uppercase;color:#4a7fa8;margin:10px 0 6px;">Batas Desa/Kel</div>
+    ${desaRows}
   `;
   return div;
 };
@@ -623,13 +682,22 @@ function copyCoord(str) {
 
 // ── INIT ──────────────────────────────────────────────────────────
 (function init() {
-  if (typeof ADMINISTRASI_DATA === 'undefined' || typeof PENATAAN_DATA === 'undefined') {
+  if (typeof ADMINISTRASI_DATA === 'undefined' || typeof PENATAAN_DATA === 'undefined' || typeof BATAS_DESA_DATA === 'undefined') {
     document.getElementById('header-badge').textContent = '⚠ Data tidak ditemukan';
     return;
   }
 
   allAdmin    = ADMINISTRASI_DATA.features;
   allPenataan = PENATAAN_DATA.features;
+
+  // Layer Batas Desa/Kel — pane tersendiri (z 395) agar selalu di belakang Admin & Penataan (overlayPane z 400)
+  map.createPane('desaPane');
+  map.getPane('desaPane').style.zIndex = 395;
+  desaLayer = L.geoJSON(BATAS_DESA_DATA, {
+    pane: 'desaPane',
+    style: styleDesa,
+    onEachFeature: onEachDesa
+  });
 
   // Admin layer (bawah)
   adminLayer = L.geoJSON(ADMINISTRASI_DATA, {
